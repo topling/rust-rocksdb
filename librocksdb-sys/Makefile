@@ -1,6 +1,6 @@
-include rocksdb/src.mk
-
-rocksdb_lib_sources.txt: rocksdb/src.mk
-	@echo -n "${LIB_SOURCES}" | tr ' ' '\n' > rocksdb_lib_sources.txt
+.PHONY: rocksdb_lib_sources.txt
+rocksdb_lib_sources.txt:
+	$(MAKE) -C rocksdb rust-support UPDATE_REPO=0
+	cp rocksdb/rust-rocksdb-src.txt $@
 
 gen_lib_sources: rocksdb_lib_sources.txt

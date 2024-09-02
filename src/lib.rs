@@ -13,6 +13,54 @@
 // limitations under the License.
 //
 
+//! Rust wrapper for ToplingDB.
+//!
+//! # Examples
+//!
+//! ```
+//! use rocksdb::{DB, SidePluginRepo};
+//! // NB: db is automatically closed at end of lifetime
+//! {
+//!    let repo = SidePluginRepo::new("config.yaml").unwrap();
+//!    let db = repo.open().unwrap();
+//!    db.put(b"my key", b"my value").unwrap();
+//!    match db.get(b"my key") {
+//!        Ok(Some(value)) => println!("retrieved value {}", String::from_utf8(value).unwrap()),
+//!        Ok(None) => println!("value not found"),
+//!        Err(e) => println!("operational problem encountered: {}", e),
+//!    }
+//!    db.delete(b"my key").unwrap();
+//! }
+//! ```
+//!
+//! Opening a database and a single column family with custom options in rust:
+//!
+//! ```
+//! use rocksdb::{DB, ColumnFamilyDescriptor, Options};
+//!
+//! let repo = SidePluginRepo::new("config.yaml").unwrap();
+//!
+//! // options should be set in config.yaml, this code snippet is for work
+//! // with existing config
+//! let mut cf_opts = repo.get_cf_options("default"); // default cf
+//! cf_opts.set_max_write_buffer_number(16);
+//! repo.put_cf_options("default", cf_opts);
+//! repo.put_cf_options("cf1", cf_opts); // cf1 use same options as default
+//!
+//! let mut db_opts = repo.get_db_options("db_option_name");
+//! db_opts.create_missing_column_families(true);
+//! db_opts.create_if_missing(true);
+//! repo.put_db_options("db_option_name", db_opts);
+//! {
+//!     let db = repo.open_with_cf().unwrap();
+//!     // db.cfs is BTreeMap<String, ColumnFamily> which holds CF
+//! }
+//! ```
+//!
+//! ///////////////////////////////////////////////////////////////////////
+//! //// Plain Old RocksDB style of open/close DB
+//! ///////////////////////////////////////////////////////////////////////
+//!
 //! Rust wrapper for RocksDB.
 //!
 //! # Examples
@@ -106,7 +154,7 @@ pub use crate::{
     compaction_filter::Decision as CompactionDecision,
     db::{
         DBAccess, DBCommon, DBWithThreadMode, LiveFile, MultiThreaded, SingleThreaded, ThreadMode,
-        DB,
+        DB, SidePluginRepo
     },
     db_iterator::{
         DBIterator, DBIteratorWithThreadMode, DBRawIterator, DBRawIteratorWithThreadMode,

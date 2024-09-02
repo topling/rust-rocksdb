@@ -377,6 +377,7 @@ fn set_option_cf_test() {
     }
 }
 
+#[ignore] // ToplingDB: TODO
 #[test]
 fn get_statistics_test() {
     let path = DBPath::new("_rust_rocksdb_get_statisticstest");

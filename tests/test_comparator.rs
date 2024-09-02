@@ -75,6 +75,7 @@ fn test_comparator() {
     assert_eq!(vec!["b-key", "a-key"], res_closure_reverse);
 }
 
+#[ignore] // ToplingDB does not support ts by default
 #[test]
 fn test_comparator_with_ts() {
     let path = "_path_for_rocksdb_storage_with_ts";
@@ -163,6 +164,7 @@ fn test_comparator_with_ts() {
     let _ = DB::destroy(&Options::default(), path);
 }
 
+#[ignore] // ToplingDB does not support ts by default
 #[test]
 fn test_comparator_with_column_family_with_ts() {
     let path = "_path_for_rocksdb_storage_with_column_family_with_ts";

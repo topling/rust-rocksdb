@@ -27,6 +27,12 @@ compression submodules:
 
 ```shell
 git submodule update --init --recursive
+time make -C librocksdb-sys
+time make -C librocksdb-sys/rocksdb/sideplugin/topling-zip pkg -j`nproc`
+sudo make -C librocksdb-sys/rocksdb/sideplugin/topling-zip install prefix=/usr
+sudo yum install libcurl-devel # ToplingDB requires libcurl-devel
+cargo build
+cargo test db::test_side_plugin_repo # ToplingDB side_plugin_repo
 ```
 
 ## Compression Support

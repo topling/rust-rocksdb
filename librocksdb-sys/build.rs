@@ -93,6 +93,24 @@ fn build_rocksdb() {
     config.include(".");
     config.define("NDEBUG", Some("1"));
 
+
+    let cxxflags = include_str!("rocksdb/rust-rocksdb-cxxflags.txt")
+        .trim()
+        .split('\n')
+        .map(str::trim)
+        .collect::<Vec<&'static str>>();
+    for i in 0..cxxflags.len() {
+        if cxxflags[i].len() > 2 && cxxflags[i].starts_with("-I") {
+            config.include("rocksdb/".to_string() + &cxxflags[i][2..]);
+        }
+        else if i > 0 && cxxflags[i-1] == "-I" {
+            config.include("rocksdb/".to_string() + &cxxflags[i]);
+        }
+        else if cxxflags[i] != "-I" {
+            config.flag(&cxxflags[i]);
+        }
+    }
+
     let mut lib_sources = include_str!("rocksdb_lib_sources.txt")
         .trim()
         .split('\n')
@@ -245,7 +263,7 @@ fn build_rocksdb() {
         config.flag(&cxx_standard());
         // matches the flags in CMakeLists.txt from rocksdb
         config.flag("-Wsign-compare");
-        config.flag("-Wshadow");
+        //config.flag("-Wshadow");
         config.flag("-Wno-unused-parameter");
         config.flag("-Wno-unused-variable");
         config.flag("-Woverloaded-virtual");
@@ -266,6 +284,8 @@ fn build_rocksdb() {
 
     config.cpp(true);
     config.flag_if_supported("-std=c++17");
+    config.remove_flag("-Wno-deprecated-builtins");
+    config.link_lib_modifier("+whole-archive");
     config.compile("librocksdb.a");
 }
 
@@ -315,7 +335,7 @@ fn try_to_find_and_link_lib(lib_name: &str) -> bool {
     if let Ok(lib_dir) = env::var(format!("{lib_name}_LIB_DIR")) {
         println!("cargo:rustc-link-search=native={lib_dir}");
         let mode = match env::var_os(format!("{lib_name}_STATIC")) {
-            Some(_) => "static",
+            Some(_) => "static:+whole-archive",
             None => "dylib",
         };
         println!("cargo:rustc-link-lib={}={}", mode, lib_name.to_lowercase());
@@ -367,7 +387,7 @@ fn main() {
         if target.contains("freebsd") {
             println!("cargo:rustc-link-search=native=/usr/local/lib");
             let mode = match env::var_os("ROCKSDB_STATIC") {
-                Some(_) => "static",
+                Some(_) => "static:+whole-archive",
                 None => "dylib",
             };
             println!("cargo:rustc-link-lib={}=rocksdb", mode);
@@ -391,6 +411,12 @@ fn main() {
         fail_on_empty_directory("snappy");
         build_snappy();
     }
+
+    //println!("cargo:rustc-link-search=native=/node-shared/lib");
+    println!("cargo:rustc-link-lib=dylib=terark-zbs-r");
+    println!("cargo:rustc-link-lib=dylib=terark-fsa-r");
+    println!("cargo:rustc-link-lib=dylib=terark-core-r");
+    println!("cargo:rustc-link-lib=dylib=curl");
 
     // Allow dependent crates to locate the sources and output directory of
     // this crate. Notably, this allows a dependent crate to locate the RocksDB

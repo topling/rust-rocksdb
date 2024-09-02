@@ -2585,3 +2585,144 @@ pub(crate) fn convert_values(
         })
         .collect()
 }
+
+pub struct SidePluginRepo {
+    inner: *mut ffi::side_plugin_repo_t,
+}
+impl SidePluginRepo {
+    pub fn new() -> SidePluginRepo {
+        unsafe { Self{inner: ffi::side_plugin_repo_create()} }
+    }
+    pub fn import_auto_file<P: AsRef<Path>>(&self, conf_file: P) -> Result<(), Error> {
+        let cpath = to_cpath(conf_file)?;
+        unsafe {
+            ffi_try!(ffi::side_plugin_repo_import_auto_file(self.inner, cpath.as_ptr(),));
+            Ok(())
+        }
+    }
+
+    pub fn open(&self) -> Result<DB, Error> {
+        unsafe {
+            let db = ffi_try!(ffi::side_plugin_repo_open(
+                self.inner, std::ptr::null_mut(), std::ptr::null_mut(),));
+            let dbpath_str = from_cstr(ffi::rocksdb_get_name(db));
+            let dbpath = Path::new(&dbpath_str);
+            Ok(DB{inner: DBWithThreadModeInner{inner: db}, _outlive: vec![],
+                  cfs: SingleThreaded{cfs: BTreeMap::new()}, path: dbpath.to_path_buf()})
+        }
+    }
+
+    pub fn open_cf(&self) -> Result<DB, Error> {
+        unsafe {
+            let mut num : usize = 0;
+            let mut cfhandles : *mut *mut ffi::rocksdb_column_family_handle_t = std::ptr::null_mut();
+            let mut cfmap = BTreeMap::new();
+            let db = ffi_try!(ffi::side_plugin_repo_open(self.inner, &mut cfhandles, &mut num,));
+            for i in 0..num {
+                let cfh = (*cfhandles).offset(i as isize);
+                let mut namelen = 0; // ignored unused out param
+                let cname = ffi::rocksdb_column_family_handle_get_name(cfh, &mut namelen);
+                cfmap.insert(from_cstr(cname), ColumnFamily{inner: cfh});
+                libc::free(cname as *mut c_void);
+            }
+            libc::free(cfhandles as *mut c_void); // was new T*[num] in C api
+            // not need free for rocksdb_get_name
+            let dbpath_str = from_cstr(ffi::rocksdb_get_name(db));
+            let dbpath = Path::new(&dbpath_str);
+            Ok(DB{inner: DBWithThreadModeInner{inner: db}, _outlive: vec![],
+                  cfs: SingleThreaded{ cfs : cfmap}, path: dbpath.to_path_buf()})
+        }
+    }
+
+    pub fn start_http(&self) -> Result<(), Error> {
+        unsafe {
+            ffi_try!(ffi::side_plugin_repo_start_http(self.inner, ));
+        }
+        Ok(())
+    }
+    pub fn close_http(&self) {
+        unsafe {
+            ffi::side_plugin_repo_close_http(self.inner);
+        }
+    }
+
+    pub fn put_cfo(&self, name: &str, cfo: &Options) {
+        let tmp = CString::new(name).unwrap();
+        let cname = tmp.as_ptr();
+        unsafe {
+            ffi::side_plugin_repo_put_cf_options(self.inner, cname, cfo.inner)
+        }
+    }
+
+    pub fn get_cfo(&self, name: &str) -> Result<Options, Error> {
+        let tmp = CString::new(name).unwrap();
+        let cname = tmp.as_ptr();
+        unsafe {
+            let opt = ffi_try!(ffi::side_plugin_repo_get_cf_options(self.inner, cname,));
+            Ok(Options{inner: opt, outlive: OptionsMustOutliveDB::default()})
+        }
+    }
+
+    pub fn put_dbo(&self, name: &str, cfo: &Options) {
+        let tmp = CString::new(name).unwrap();
+        let cname = tmp.as_ptr();
+        unsafe {
+            ffi::side_plugin_repo_put_db_options(self.inner, cname, cfo.inner);
+        }
+    }
+
+    pub fn get_dbo(&self, name: &str) -> Result<Options, Error> {
+        let tmp = CString::new(name).unwrap();
+        let cname = tmp.as_ptr();
+        unsafe {
+            let opt = ffi_try!(ffi::side_plugin_repo_get_db_options(self.inner, cname,));
+            Ok(Options{inner: opt, outlive: OptionsMustOutliveDB::default()})
+        }
+    }
+}
+
+impl Drop for SidePluginRepo {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::side_plugin_repo_close_all(self.inner);
+        }
+    }
+}
+
+#[test]
+fn test_side_plugin_repo() {
+    let conf = "librocksdb-sys/rocksdb/sideplugin/rockside/sample-conf/db_bench_enterprise.yaml";
+    let repo = SidePluginRepo::new();
+    { // just for demo put/get cfo/dbo
+        let mut cfo = Options::default();
+        cfo.set_allow_concurrent_memtable_write(true); // set any cf options
+        repo.put_cfo("default", &cfo); // put "default" before import_auto_file
+    }
+    // cfo "default" have been put as above, its fields will be overridden by
+    // which defined in conf, import_auto_file is mainly used for dyn plugin
+    repo.import_auto_file(conf).expect("Open SidePluginRepo");
+    let mut cfo = repo.get_cfo("default").expect("get_cfo(default)");
+    let mut dbo = repo.get_dbo("dbo").expect("get_dbo(dbo)");
+    cfo.set_write_buffer_size(1024*1024); // override it
+    dbo.set_max_background_jobs(11);
+    repo.put_cfo("default", &cfo); // put again
+    repo.put_dbo("dbo", &dbo);
+    let db = if std::env::var("CARGO_SIDE_PLUGIN_OPEN_CF").is_ok() {
+        repo.open_cf().expect("open_cf")
+    } else {
+        repo.open().expect("open")
+    };
+    repo.start_http().expect("start_http");
+    db.put(b"a", b"aa").expect("put(a, aa)");
+    db.put(b"b", b"bb").expect("put(b, bb)");
+    match std::env::var("CARGO_SIDE_PLUGIN_SLEEP") {
+        Ok(env_val) => { // set this env, then access http://127.0.0.1:2011
+            let sec : u64 = env_val.parse().expect("bad u64");
+            std::thread::sleep(core::time::Duration::from_secs(sec));
+        },
+        Err(_) => ()
+    }
+    repo.close_http(); // optional, will be closed in drop()
+    assert_eq!(db.get("a").unwrap().unwrap().as_slice(), b"aa");
+    assert_eq!(db.get("b").unwrap().unwrap().as_slice(), b"bb");
+}
