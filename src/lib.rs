@@ -19,9 +19,10 @@
 //!
 //! ```
 //! use rocksdb::{DB, SidePluginRepo};
-//! // NB: db is automatically closed at end of lifetime
+//! // NB: repo and db automatically closed at end of lifetime
 //! {
-//!    let repo = SidePluginRepo::new("config.yaml").unwrap();
+//!    let repo = SidePluginRepo::new();
+//!    repo.import_auto_file("config.yaml").unwrap(); // yaml or json
 //!    let db = repo.open().unwrap();
 //!    db.put(b"my key", b"my value").unwrap();
 //!    match db.get(b"my key") {
